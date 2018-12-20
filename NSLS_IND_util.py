@@ -12,13 +12,19 @@ import sys,os
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import measure, morphology, feature
+import scipy
+import glob
 
-
-
-def peak_finder(img_file_name,thld,min_pix):
+def peak_finder(img_file_name,thld,min_pix,interact=False,im_rev=False):
     
     im=plt.imread(img_file_name)
     im=im[:,:,0] # To convert the image to gray scale
+    
+    if im_rev==True:
+        im=255-im;
+        
+        
+        
     all_labels=measure.label(im>thld)
 #    num_blobs=all_labels.max()+1
 #    
@@ -70,13 +76,15 @@ def peak_finder(img_file_name,thld,min_pix):
     
     beam_center=np.array([1492.98,2163.41])
     
-    plt.figure(figsize=(15,15))
+    if interact:
+    
+        plt.figure(figsize=(15,15))
 #    
-    plt.imshow(im,cmap='gray')
-    plt.clim(0,1.5*thld)
-    plt.scatter(weighted_centroid_filtered[:,1],weighted_centroid_filtered[:,0],edgecolors='r',facecolors='none')
-    plt.scatter(beam_center[1],beam_center[0],marker='*',color='b')
-    plt.show()
+        plt.imshow(im,cmap='gray')
+        plt.clim(0,1.5*thld)
+        plt.scatter(weighted_centroid_filtered[:,1],weighted_centroid_filtered[:,0],edgecolors='r',facecolors='none')
+        plt.scatter(beam_center[1],beam_center[0],marker='*',color='b')
+        plt.show()
     
     return label_filtered_sorted,weighted_centroid_filtered,props
 
@@ -146,21 +154,79 @@ def pos2angle(col,row):
 #    row=np.int16(sys.argv[2])
 #
 #    pos2angle(col,row)
-
-def peak_list_out(label,peak_coord,props,out_file_name):
     
-    t_list=np.zeros((label.shape[0],7))
-    
-    for index,value in enumerate(label):
-        t_list[index,0:2]=np.array(props[value-1].weighted_centroid)
-        t_list[index,2]=np.array(props[value-1].max_intensity)
-        t_list[index,3]=np.array(props[value-1].area)
-        pos=pos2angle(props[value-1].weighted_centroid[1],props[value-1].weighted_centroid[0])
-        t_list[index,4:]=pos
 
-    np.savetxt(out_file_name,t_list,delimiter=' ',fmt='%.5e')
-    print(out_file_name,'saved!')
+def pos2q(pos,E_ph):
+    
+    lamda=12.398/(E_ph/1000)#E_ph:photon energy in eV, lamda: wavelength in A
+    k0=1/lamda #wavevector in A^-1.
+    
+    
+    if not pos.shape==(3,):
+        sys.exit('check the input pos')
+    else:
+        pos_n=pos/np.linalg.norm(pos)#normal of the pos vector
+        k_s=k0*pos_n #the scattering wavevector
+        q=np.array([0,0,-k0])+k_s
+        
+        
+        return q
+
+def peak_list_out(label,peak_coord,props,out_file_name,list_fmt='SPIND_py',E_ph=12000):
+
+
+    if list_fmt=='CFL_NSLS':  ###This peak list format is compatible with the Matlab version adapted for NSLS
+        t_list=np.zeros((label.shape[0],7))# CFL_NSLS format
+        
+        for index,value in enumerate(label):
+            t_list[index,0:2]=np.array(props[value-1].weighted_centroid)
+            t_list[index,2]=np.array(props[value-1].max_intensity)
+            t_list[index,3]=np.array(props[value-1].area)
+            pos=pos2angle(props[value-1].weighted_centroid[1],props[value-1].weighted_centroid[0])
+            t_list[index,4:]=pos
+        
+        np.savetxt(out_file_name,t_list,delimiter=' ',fmt='%.5e')
+        print(out_file_name,'saved!')
+        
+        
+        
+    elif list_fmt=='SPIND_py': ###This peak list format is compatible with SPIND Python version.
+        SPIND_peak_list=np.zeros((label.shape[0],8))# the peak list following the SPIND python format.
+        for index,value in enumerate(label):
+            SPIND_peak_list[index,0:2]=np.array(props[value-1].weighted_centroid)
+            SPIND_peak_list[index,2]=np.array(props[value-1].max_intensity)
+            SPIND_peak_list[index,3]=np.array(props[value-1].area)
+            
+            pos=pos2angle(props[value-1].weighted_centroid[1],props[value-1].weighted_centroid[0])
+            q=pos2q(pos,E_ph)
+            SPIND_peak_list[index,4:7]=q
+            SPIND_peak_list[index,7]=1/ np.linalg.norm(q)
+            
+        np.savetxt(out_file_name,SPIND_peak_list,delimiter=' ',fmt='%.5e %.5e %.5e %.2f %.5e %.5e %.5e %.2f')
+        print(out_file_name,'saved!')
+            
+            
+            
+            
+        
+    
+    else: 
+        sys.exit('Please check the peak list format argument:\n \
+                 options can be: "SPIND_py" or "CFL_NSLS"')
+        
+
 
     return None
     
-
+def sum_im(img_folder):
+    img_folder=os.path.abspath(img_folder)
+    img_files=glob.glob(img_folder+'/*.tif')
+    sum_array=np.zeros_like(plt.imread(img_files[0]),dtype=np.int64)
+    
+    for file in img_files:
+        im=plt.imread(file)
+        sum_array+=im
+        
+    
+    scipy.misc.imsave(img_folder+'/sum.tiff', sum_array/len(img_files))
+    return sum_array
